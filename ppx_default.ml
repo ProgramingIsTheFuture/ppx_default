@@ -2,34 +2,56 @@ open Ppxlib
 module List = ListLabels
 open Ast_builder.Default
 
+let url = "github.com/ProgramingIsTheFuture/ppx_default"
+
+let not_supported_error typ =
+  failwith
+    (Format.sprintf "Type %s is not yet supported. Create an issue at %s" typ
+       url)
+
+let rec default_value_by_type ~loc core_type =
+  match core_type.ptyp_desc with
+  | Ptyp_constr ({ txt = Lident s; _ }, _) -> (
+      (* Handling constants *)
+      match s with
+      | "int" ->
+          Ast_builder.Default.pexp_constant ~loc (Pconst_integer ("0", None))
+      | "string" ->
+          Ast_builder.Default.pexp_constant ~loc (Pconst_string ("", loc, None))
+      | "float" ->
+          Ast_builder.Default.pexp_constant ~loc (Pconst_float ("0.0", None))
+      | "char" -> Ast_builder.Default.pexp_constant ~loc (Pconst_char ' ')
+      | "array" -> Ast_builder.Default.pexp_array ~loc []
+      | "list" ->
+          Ast_builder.Default.pexp_construct ~loc
+            { txt = lident "[]"; loc }
+            None
+      | _ -> not_supported_error s)
+  | Ptyp_arrow (l, _, t2) ->
+      (* Handling arrow types
+         Gen a function that ignores all params and return the right expr *)
+      Ast_builder.Default.pexp_fun ~loc l None
+        (ppat_var ~loc { txt = "_"; loc })
+        (default_value_by_type ~loc t2)
+  | Ptyp_tuple cl ->
+      (* Handling tuples *)
+      Ast_builder.Default.pexp_tuple ~loc
+        (List.map cl ~f:(default_value_by_type ~loc))
+  | _ -> not_supported_error "_"
+
+let default_field ~loc field =
+  let label = field.pld_name in
+  let default_value =
+    (* TODO: Add support for all known types
+        Recursivly default types
+        Handle errors: "_" case is supposed to be an error/not supported yet. *)
+    default_value_by_type ~loc field.pld_type
+  in
+  (label, default_value)
+
 let default_impl ~(fields : label_declaration list) ~ptype_name ~ptype_loc =
   let loc = ptype_loc in
-
-  let field_initializers =
-    List.map fields ~f:(fun field ->
-        let label = field.pld_name in
-        let default_value =
-          (* TODO: Add support for all known types
-              Recursivly default types
-              Handle errors: "_" case is supposed to be an error/not supported yet. *)
-          match field.pld_type.ptyp_desc with
-          | Ptyp_constr ({ txt = Lident s; _ }, _) -> (
-              match s with
-              | "int" ->
-                  Ast_builder.Default.pexp_constant ~loc
-                    (Pconst_integer ("0", None))
-              | "string" ->
-                  Ast_builder.Default.pexp_constant ~loc
-                    (Pconst_string ("", loc, None))
-              | _ ->
-                  Ast_builder.Default.pexp_constant ~loc
-                    (Pconst_integer ("0", None)))
-          | _ ->
-              Ast_builder.Default.pexp_constant ~loc
-                (Pconst_integer ("0", None))
-        in
-        (label, default_value))
-  in
+  let field_initializers = List.map fields ~f:(default_field ~loc) in
   let record_expr =
     let fields =
       List.map field_initializers ~f:(fun ({ txt; _ }, value_expr) ->
