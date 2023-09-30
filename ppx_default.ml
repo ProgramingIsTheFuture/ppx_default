@@ -49,7 +49,22 @@ let default_field ~loc field =
   in
   (label, default_value)
 
-let default_impl ~(fields : label_declaration list) ~ptype_name ~ptype_loc =
+let default_fun ~loc ~ptype_name expr =
+  pstr_value ~loc Nonrecursive
+    [
+      {
+        pvb_pat =
+          ppat_var ~loc { ptype_name with txt = ptype_name.txt ^ "_default" };
+        pvb_expr =
+          pexp_fun ~loc Nolabel None
+            (ppat_construct ~loc { txt = lident "()"; loc } None)
+            expr;
+        pvb_attributes = [];
+        pvb_loc = loc;
+      };
+    ]
+
+let default_impl ~(fields : label_declaration list) ~ptype_loc =
   let loc = ptype_loc in
   let field_initializers = List.map fields ~f:(default_field ~loc) in
   let record_expr =
@@ -60,19 +75,7 @@ let default_impl ~(fields : label_declaration list) ~ptype_name ~ptype_loc =
     in
     Ast_builder.Default.pexp_record ~loc fields None
   in
-  pstr_value ~loc Nonrecursive
-    [
-      {
-        pvb_pat =
-          ppat_var ~loc { ptype_name with txt = ptype_name.txt ^ "_default" };
-        pvb_expr =
-          pexp_fun ~loc Nolabel None
-            (ppat_construct ~loc { txt = lident "()"; loc } None)
-            record_expr;
-        pvb_attributes = [];
-        pvb_loc = loc;
-      };
-    ]
+  record_expr
 
 let ( ^ ) (l1 : label) (l2 : label) = String.concat l1 [ l2 ]
 
@@ -93,35 +96,68 @@ let generate_impl ~ctxt (_rec_flag, type_declarations) =
   let loc = Expansion_context.Deriver.derived_item_loc ctxt in
   List.map type_declarations ~f:(fun (td : type_declaration) ->
       match td with
-      | {
-       ptype_kind = Ptype_abstract | Ptype_variant _ | Ptype_open;
-       ptype_loc;
-       _;
-      } ->
+      | { ptype_kind = Ptype_abstract; ptype_loc; _ } ->
           let ext =
             Location.error_extensionf ~loc:ptype_loc
               "Not yet implemented to default this types"
           in
           Ast_builder.Default.pstr_extension ~loc ext []
-      | { ptype_kind = Ptype_record fields; ptype_name; ptype_loc; _ } ->
-          default_impl ~fields ~ptype_name ~ptype_loc)
-
-let generate_intf ~ctxt (_rec_flag, type_declarations) =
-  let loc = Expansion_context.Deriver.derived_item_loc ctxt in
-  List.map type_declarations ~f:(fun (td : type_declaration) ->
-      match td with
-      | {
-       ptype_kind = Ptype_abstract | Ptype_variant _ | Ptype_open;
-       ptype_loc;
-       _;
-      } ->
+      | { ptype_kind = Ptype_open; ptype_loc; _ } ->
           let ext =
             Location.error_extensionf ~loc:ptype_loc
               "Not yet implemented to default this types"
           in
-          Ast_builder.Default.psig_extension ~loc ext []
-      | { ptype_kind = Ptype_record _; ptype_name; ptype_loc; _ } ->
-          default_intf ~ptype_name ~loc:ptype_loc)
+          Ast_builder.Default.pstr_extension ~loc ext []
+      | { ptype_kind = Ptype_variant constl; ptype_loc; ptype_name; _ } -> (
+          let l =
+            List.find_opt
+              ~f:(fun a ->
+                match a.pcd_args with
+                | Pcstr_tuple [] | Pcstr_record [] -> true
+                | _ -> false)
+              constl
+          in
+          match l with
+          | Some v ->
+              let s = { txt = lident v.pcd_name.txt; loc = ptype_loc } in
+              let expr =
+                Ast_builder.Default.pexp_construct ~loc:ptype_loc s None
+              in
+              default_fun ~loc:ptype_loc ~ptype_name expr
+          | None -> (
+              let l = List.hd constl in
+              match l.pcd_args with
+              | Pcstr_tuple types ->
+                  let expr =
+                    default_value_by_type ~loc:l.pcd_loc
+                      {
+                        ptyp_loc = ptype_loc;
+                        ptyp_desc = Ptyp_tuple types;
+                        ptyp_loc_stack = [];
+                        ptyp_attributes = [];
+                      }
+                  in
+                  let s = { txt = lident l.pcd_name.txt; loc = ptype_loc } in
+                  let expr =
+                    Ast_builder.Default.pexp_construct ~loc:ptype_loc s
+                      (Some expr)
+                  in
+                  default_fun ~loc:ptype_loc ~ptype_name expr
+              | Pcstr_record fields ->
+                  let s = { txt = lident l.pcd_name.txt; loc = ptype_loc } in
+                  let expr = default_impl ~fields ~ptype_loc:l.pcd_loc in
+                  let expr =
+                    Ast_builder.Default.pexp_construct ~loc:ptype_loc s
+                      (Some expr)
+                  in
+                  default_fun ~loc ~ptype_name expr))
+      | { ptype_kind = Ptype_record fields; ptype_name; ptype_loc; _ } ->
+          default_impl ~fields ~ptype_loc |> default_fun ~loc ~ptype_name)
+
+let generate_intf ~ctxt:_ (_rec_flag, type_declarations) =
+  List.map type_declarations ~f:(fun (td : type_declaration) ->
+      match td with
+      | { ptype_name; ptype_loc; _ } -> default_intf ~ptype_name ~loc:ptype_loc)
 
 let impl_generator = Deriving.Generator.V2.make_noarg generate_impl
 let intf_generator = Deriving.Generator.V2.make_noarg generate_intf

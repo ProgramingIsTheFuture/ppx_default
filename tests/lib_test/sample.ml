@@ -1,3 +1,8 @@
+type hehe = Abc of { name : string } [@@deriving default, show]
+
+let _ =
+  hehe_default () |> show_hehe |> print_string |> print_newline |> flush_all
+
 type abc = {
   test_me : int;
   name : string;
