@@ -3,6 +3,7 @@ opam-version: "2.0"
 synopsis: "Generate default values for your types"
 maintainer: ["ProgramingIsTheFuture"]
 authors: ["ProgramingIsTheFuture"]
+license: "MIT"
 homepage: "https://github.com/ProgramingIsTheFuture/ppx_default"
 bug-reports: "https://github.com/ProgramingIsTheFuture/ppx_default/issues"
 depends: [
@@ -23,3 +24,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+dev-repo: "git+https://github.com/ProgramingIsTheFuture/ppx_default.git"

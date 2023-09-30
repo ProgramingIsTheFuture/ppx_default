@@ -8,6 +8,8 @@
 (maintainers "ProgramingIsTheFuture")
 (homepage "https://github.com/ProgramingIsTheFuture/ppx_default")
 (bug_reports "https://github.com/ProgramingIsTheFuture/ppx_default/issues")
+(source (github ProgramingIsTheFuture/ppx_default))
+(license MIT)
 
 (package
  (name ppx_default)
