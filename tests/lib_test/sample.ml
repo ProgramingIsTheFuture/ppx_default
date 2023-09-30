@@ -1,4 +1,4 @@
-type hehe = Abc of { name : string } [@@deriving default, show]
+type hehe = { name : Other.binding } [@@deriving show, default]
 
 let _ =
   hehe_default () |> show_hehe |> print_string |> print_newline |> flush_all
