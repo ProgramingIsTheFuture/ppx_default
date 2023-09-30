@@ -9,4 +9,4 @@
 
 (package
  (name ppx_default)
- (synopsis "ppx_default: Default your types."))
+ (synopsis "Generate default values for your types"))
