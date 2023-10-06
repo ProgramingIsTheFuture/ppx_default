@@ -1,4 +1,4 @@
-# v0.1
+# v0.1.1
 
 New features:
 - hability to default any type
