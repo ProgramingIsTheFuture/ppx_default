@@ -16,5 +16,5 @@
  (synopsis "Generate default values for your types")
  (depends
   (ocaml (>= 4.14))
-  ppxlib
+  (ppxlib (>= 0.25))
   ppx_deriving))

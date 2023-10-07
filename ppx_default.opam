@@ -9,7 +9,7 @@ bug-reports: "https://github.com/ProgramingIsTheFuture/ppx_default/issues"
 depends: [
   "dune" {>= "3.10"}
   "ocaml" {>= "4.14"}
-  "ppxlib"
+  "ppxlib" {>= "0.25"}
   "ppx_deriving"
   "odoc" {with-doc}
 ]
