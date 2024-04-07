@@ -1,5 +1,7 @@
 (lang dune 3.10)
 
+(name ppx_default)
+
 (generate_opam_files true)
 
 (authors "ProgramingIsTheFuture")
