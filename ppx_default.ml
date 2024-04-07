@@ -4,18 +4,28 @@ open Ast_builder.Default
 
 let url = "github.com/ProgramingIsTheFuture/ppx_default"
 
-let not_supported_error typ =
-  failwith
-    (Format.sprintf "Type %s is not yet supported. Create an issue at %s" typ
-       url)
+let not_supported_error e =
+  failwith (Format.sprintf "%s. Create an issue at %s" e url)
 
 let rec default_value_by_type ~loc core_type =
   match core_type.ptyp_desc with
-  | Ptyp_constr ({ txt = Lident s; _ }, _) -> (
+  | Ptyp_constr (({ txt = Ldot (_, _); loc } as l), _) ->
+      let l =
+        match l.txt with
+        | Ldot (a, l) -> { txt = Ldot (a, l ^ "_default"); loc }
+        | _ -> l
+      in
+      let f = Ast_helper.Exp.ident l in
+      Ast_builder.Default.pexp_apply ~loc f
+        [ (Nolabel, pexp_construct ~loc { txt = lident "()"; loc } None) ]
+  | Ptyp_constr ({ txt = Lident s; loc }, _) -> (
       (* Handling constants *)
       match s with
       | "int" ->
           Ast_builder.Default.pexp_constant ~loc (Pconst_integer ("0", None))
+      | "int64" ->
+          Ast_builder.Default.pexp_constant ~loc
+            (Ast_helper.Const.int64 Int64.zero)
       | "string" ->
           Ast_builder.Default.pexp_constant ~loc (Pconst_string ("", loc, None))
       | "float" ->
@@ -26,7 +36,16 @@ let rec default_value_by_type ~loc core_type =
           Ast_builder.Default.pexp_construct ~loc
             { txt = lident "[]"; loc }
             None
-      | _ -> not_supported_error s)
+      | _ ->
+          let expr =
+            not_supported_error
+              (Format.sprintf
+                 "The value %s was not defined, try adding the [@@deriving \
+                  default]"
+                 (s ^ "_default"))
+          in
+          Ast_builder.Default.pexp_apply ~loc expr
+            [ (Nolabel, pexp_construct ~loc { txt = lident "()"; loc } None) ])
   | Ptyp_arrow (l, _, t2) ->
       (* Handling arrow types
          Gen a function that ignores all params and return the right expr *)
@@ -37,28 +56,27 @@ let rec default_value_by_type ~loc core_type =
       (* Handling tuples *)
       Ast_builder.Default.pexp_tuple ~loc
         (List.map cl ~f:(default_value_by_type ~loc))
-  | _ -> not_supported_error "_"
+  | Ptyp_package _ | Ptyp_poly _ | Ptyp_variant _ | Ptyp_extension _
+  | Ptyp_class _ | Ptyp_alias _ | Ptyp_object _ | Ptyp_var _ | Ptyp_any | _ ->
+      not_supported_error "Type is not supported"
 
 let default_field ~loc field =
   let label = field.pld_name in
-  let default_value =
-    (* TODO: Add support for all known types
-        Recursivly default types
-        Handle errors: "_" case is supposed to be an error/not supported yet. *)
-    default_value_by_type ~loc field.pld_type
-  in
+  let default_value = default_value_by_type ~loc field.pld_type in
   (label, default_value)
 
 let default_fun ~loc ~ptype_name expr =
+  let expr =
+    pexp_fun ~loc Nolabel None
+      (ppat_construct ~loc { txt = lident "()"; loc } None)
+      expr
+  in
   pstr_value ~loc Nonrecursive
     [
       {
         pvb_pat =
           ppat_var ~loc { ptype_name with txt = ptype_name.txt ^ "_default" };
-        pvb_expr =
-          pexp_fun ~loc Nolabel None
-            (ppat_construct ~loc { txt = lident "()"; loc } None)
-            expr;
+        pvb_expr = expr;
         pvb_attributes = [];
         pvb_loc = loc;
       };
@@ -77,37 +95,19 @@ let default_impl ~(fields : label_declaration list) ~ptype_loc =
   in
   record_expr
 
-let ( ^ ) (l1 : label) (l2 : label) = String.concat l1 [ l2 ]
-
-let default_intf ~ptype_name ~loc =
-  psig_value ~loc
-    {
-      pval_name = { ptype_name with txt = ptype_name.txt ^ "_default" };
-      pval_type =
-        ptyp_arrow ~loc Nolabel
-          (ptyp_constr ~loc { loc; txt = lident "unit" } [])
-          (ptyp_constr ~loc { loc; txt = lident ptype_name.txt } []);
-      pval_attributes = [];
-      pval_loc = loc;
-      pval_prim = [];
-    }
-
 let generate_impl ~ctxt (_rec_flag, type_declarations) =
   let loc = Expansion_context.Deriver.derived_item_loc ctxt in
   List.map type_declarations ~f:(fun (td : type_declaration) ->
       match td with
-      | { ptype_kind = Ptype_abstract; ptype_loc; _ } ->
-          let ext =
-            Location.error_extensionf ~loc:ptype_loc
-              "Not yet implemented to default this types"
-          in
-          Ast_builder.Default.pstr_extension ~loc ext []
-      | { ptype_kind = Ptype_open; ptype_loc; _ } ->
-          let ext =
-            Location.error_extensionf ~loc:ptype_loc
-              "Not yet implemented to default this types"
-          in
-          Ast_builder.Default.pstr_extension ~loc ext []
+      | {
+       ptype_kind = Ptype_abstract;
+       ptype_loc;
+       ptype_name;
+       ptype_manifest = Some core_t;
+       _;
+      } ->
+          let expr = default_value_by_type ~loc:ptype_loc core_t in
+          default_fun ~loc:ptype_loc ~ptype_name expr
       | { ptype_kind = Ptype_variant constl; ptype_loc; ptype_name; _ } -> (
           let l =
             List.find_opt
@@ -152,7 +152,26 @@ let generate_impl ~ctxt (_rec_flag, type_declarations) =
                   in
                   default_fun ~loc ~ptype_name expr))
       | { ptype_kind = Ptype_record fields; ptype_name; ptype_loc; _ } ->
-          default_impl ~fields ~ptype_loc |> default_fun ~loc ~ptype_name)
+          default_impl ~fields ~ptype_loc |> default_fun ~loc ~ptype_name
+      | { ptype_loc; ptype_name; _ } ->
+          let ext =
+            Location.error_extensionf ~loc:ptype_loc
+              "Not yet implemented to default this types: %s" ptype_name.txt
+          in
+          Ast_builder.Default.pstr_extension ~loc ext [])
+
+let default_intf ~ptype_name ~loc =
+  psig_value ~loc
+    {
+      pval_name = { ptype_name with txt = ptype_name.txt ^ "_default" };
+      pval_type =
+        ptyp_arrow ~loc Nolabel
+          (ptyp_constr ~loc { loc; txt = lident "unit" } [])
+          (ptyp_constr ~loc { loc; txt = lident ptype_name.txt } []);
+      pval_attributes = [];
+      pval_loc = loc;
+      pval_prim = [];
+    }
 
 let generate_intf ~ctxt:_ (_rec_flag, type_declarations) =
   List.map type_declarations ~f:(fun (td : type_declaration) ->
