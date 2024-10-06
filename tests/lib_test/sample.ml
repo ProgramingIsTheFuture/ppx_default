@@ -1,7 +1,9 @@
+include Other
+
 type hehe = { name : Other.binding } [@@deriving show, default]
 
 let _ =
-  hehe_default () |> show_hehe |> print_string |> print_newline |> flush_all
+  default_hehe () |> show_hehe |> print_string |> print_newline |> flush_all
 
 type abc = {
   test_me : int;
@@ -14,5 +16,5 @@ type abc = {
 [@@deriving show, default]
 
 let _ =
-  let abc = abc_default () in
+  let abc = default_abc () in
   abc |> show_abc |> print_string |> print_newline |> flush_all

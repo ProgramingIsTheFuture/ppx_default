@@ -1,1 +1,2 @@
-let _ = Sample.abc_default ()
+let _ = Sample.default_abc ()
+let _ = Sample.A.default ()
