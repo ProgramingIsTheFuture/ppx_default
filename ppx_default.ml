@@ -79,6 +79,7 @@ let default_fun ~loc ~ptype_name expr =
         pvb_expr = expr;
         pvb_attributes = [];
         pvb_loc = loc;
+        pvb_constraint = None;
       };
     ]
 
